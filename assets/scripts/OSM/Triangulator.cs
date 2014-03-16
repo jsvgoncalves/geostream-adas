@@ -4,15 +4,16 @@ using System.Collections.Generic;
 public class Triangulator
 {
 	private List<Vector2> m_points = new List<Vector2>();
-	
+   
 	public Triangulator (Vector2[] points) {
 		m_points = new List<Vector2>(points);
+      
 	}
 	
 	public int[] Triangulate() {
 		List<int> indices = new List<int>();
-		
-		int n = m_points.Count;
+
+        int n = m_points.Count;
 		if (n < 3)
 			return indices.ToArray();
 		

@@ -74,7 +74,9 @@ public class ADASTracer : MonoBehaviour {
 //		foreach (Node node in nodes) {
 //			pl.Add (node);
 //		}
-		go = pl.Close (transform);
+        GameObject go = new GameObject();
+        go.transform.position = transform.position;
+        pl.Close(go);
         done = true;
 
 	}

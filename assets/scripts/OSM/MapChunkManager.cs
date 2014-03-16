@@ -9,31 +9,43 @@ public class MapChunkManager : MonoBehaviour {
 	public Material buildingMaterial;
 	public Material roadMaterial;
 	private Player player;
-    private float areaRadius;
+    [HideInInspector]
 	public float offsetX;
+    [HideInInspector]
 	public float offsetZ;
     public int numberOfDivisions;
 	private float maxLon;
 	private float minLon;
 	private float maxLat;
 	private float minLat;
-	private int unloadRadius;
+    private Player p;
 	public float chunkStep;
 	public int numChunks;
     public Transform treePrefab;
+    [HideInInspector]
 	public List<GameObject> mapChunks;
+    [HideInInspector]
 	public NodeReferenceHash mapHash;
-    public bool isReady = false;
-	// Use this for initialization
+    public bool exportObjs;
+    public List<string> DKeys = new List<string>();
+    public List<string> DValues = new List<string>();
+    public Dictionary<string, string> structures = new Dictionary<string, string>();
+
+    // Use this for initialization
 	void Start () {
 	
 		mapHash = new NodeReferenceHash();
+        player = currentPlayer.GetComponent<Player>();
+        for (int i = 0; i < DKeys.Count; i++)
+        {
+            structures.Add(DKeys[i], DValues[i]);
+        }
 
 	}
 
-	void LoadUnloadChunks()
+    void LoadUnloadChunks()
 	{
-		player = currentPlayer.GetComponent<Player>();
+		
 		GeoUTMConverter conv = new GeoUTMConverter();
 		conv.ToUTM(player.initialFakeLat,player.initialFakeLon);
 		offsetX = (float)conv.X;
@@ -74,7 +86,9 @@ public class MapChunkManager : MonoBehaviour {
 					go.name = "World Chunk";
 					go.isStatic = true;
 					MapChunkLoader mcl = go.AddComponent<MapChunkLoader>();
-					go.AddComponent<TaskExecutorScript>();
+                    mcl.exportObjs = exportObjs;
+                    mcl.structures = structures;
+					//go.AddComponent<TaskExecutorScript>();
 					mcl.groundMaterial = groundMaterial;
 					mcl.buildingMaterial = buildingMaterial;
 					mcl.roadMaterial = roadMaterial;
@@ -91,6 +105,7 @@ public class MapChunkManager : MonoBehaviour {
 					go.transform.parent = this.transform;
 
 					newMapChunks.Add(go);
+                                    
 				}
 			}
 		}
@@ -106,6 +121,7 @@ public class MapChunkManager : MonoBehaviour {
                     {
                         GameObject go = GameObject.Find(item.ToString());
                         Destroy(go);
+                       
 
                     }
                     mc.wayList.Remove(item);
@@ -115,23 +131,28 @@ public class MapChunkManager : MonoBehaviour {
 				{
                     Destroy(mapChunks[i]);
 					mapChunks.Remove(mapChunks[i]);
+                   
                     
 				}
 				
 			}
+
 		}
 
 		for(int i = 0; i < newMapChunks.Count; i++)
 		{
 			mapChunks.Add(newMapChunks[i]);
 		}
-        
+
+      
+
 	}
 		
 	// Update is called once per frame
-	void Update () {
+	void FixedUpdate () {
+        if(player.isReady)
          LoadUnloadChunks();
-         isReady = true;
+
 		
 	}
 }

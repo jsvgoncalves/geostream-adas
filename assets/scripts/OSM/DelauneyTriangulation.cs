@@ -82,7 +82,7 @@ public class OldTriangulator {
 		OurNewMesh.AddComponent < MeshRenderer > ();
 		//OurNewMesh.GetComponent().castShadows = false;
 		//OurNewMesh.GetComponent().receiveShadows = false;
-		mf.mesh = mesh;
+		mf.sharedMesh = mesh;
 		return OurNewMesh;
 	}
 	

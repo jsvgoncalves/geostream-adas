@@ -18,5 +18,6 @@ public class Node
 	public long changeset;
 	public long uid;
     public NodeType type;
+    public string structureType = "";
 	public string user;
 }

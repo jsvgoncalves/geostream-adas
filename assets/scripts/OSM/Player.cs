@@ -18,8 +18,9 @@ public class Player : MonoBehaviour {
 	public float fakeSpeedDecrement;
 	public float maxFakeSpeed;
 	public float fakeRotation;
-    public LocalWeather localWeather;
 	public GeoUTMConverter playerConverter;
+    public bool isReady = true;
+    public LocalWeather localWeather;
 	// Use this for initialization
 	public void Start () 
 	{

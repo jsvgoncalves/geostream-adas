@@ -7,7 +7,7 @@ using System.Linq;
 
 public class Loom : MonoBehaviour
 {
-	public static int maxThreads = 3;
+	public static int maxThreads = 8;
 	static int numThreads;
 	
 	private static Loom _current;

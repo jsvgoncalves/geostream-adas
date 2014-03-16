@@ -9,11 +9,12 @@ public class CreateGround{
     public float maxLon;
     public float minLon;
     public float minLat;
-    public float offsetLat;
-    public float offsetLon;
+    public float offsetPositionX;
+    public float offsetPositionZ;
     private List<float> heigths;
     private List<float> coordinates;
-    private List<Vector3> vertexes; 
+    private List<Vector3> vertexes;
+    public List<Vector3> inflexPoints;
 	// Use this for initialization
 	public Mesh GetGroundMesh () {
         CreateDivisions();
@@ -27,14 +28,16 @@ public class CreateGround{
 
     void CreateVertexes()
     {
-        GeoUTMConverter off = new GeoUTMConverter();
+        
         
         vertexes = new List<Vector3>();
+        inflexPoints = new List<Vector3>();
         for(int i = 0; i < coordinates.Count; i+=2)
         {
             GeoUTMConverter conv = new GeoUTMConverter();
             conv.ToUTM(coordinates[i], coordinates[i + 1]);
             vertexes.Add(new Vector3((float)(conv.X ), heigths[i / 2], (float)(conv.Y )));
+            inflexPoints.Add(new Vector3((float)(conv.X - offsetPositionX), heigths[i / 2], (float)(conv.Y - offsetPositionZ)));
         }
     }
 
@@ -45,7 +48,7 @@ public class CreateGround{
         MeshFilter mf = go.AddComponent<MeshFilter>();
         MeshRenderer mr = go.AddComponent<MeshRenderer>();
         Mesh m = CreateGroundGeometry();
-        mf.mesh = m;
+        mf.sharedMesh = m;
     }
 
     Mesh CreateGroundGeometry()
@@ -77,7 +80,7 @@ public class CreateGround{
                 for (float x = 0.0f; x < hCount2; x++)
                 {
                     vertices[index] = new Vector3(x * scaleX - width / 2f, heigths[(int)(y + x * hCount2)], y * scaleY - length / 2f);
-                    uvs[index++] = new Vector2(x * uvFactorX, y * uvFactorY);
+                    uvs[index++] = new Vector2(x / (float)hCount2, y / (float)vCount2); //new Vector2(x * uvFactorX, y * uvFactorY);
                 }
             }
 

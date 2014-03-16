@@ -14,8 +14,9 @@ public class Way
 	public long uid;
 	public string user;
 	public WayType type;
+    public string structureType = "";
 	public string name;
-	public int height;
+	public float height;
 
 	public List<Node> nodes;
 

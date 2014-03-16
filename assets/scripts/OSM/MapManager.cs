@@ -81,7 +81,8 @@ public class MapManager {
                         {
                             if (value.Contains("tree"))
                             {
-                                tempNode.type = NodeType.Tree; 
+                                tempNode.type = NodeType.Tree;
+                                tempNode.structureType = "tree";
 								trees.Add(tempNode);
                             }
                         }
@@ -124,17 +125,22 @@ public class MapManager {
 						if(key.Contains("building"))
 						{
 							tempWay.type = WayType.Building;
+                            tempWay.structureType = "building";
 						}
 						if(key.Contains("amenity"))
 						{
-							if(value.Contains("parking"))
-								tempWay.type = WayType.Parking;
+                            if (value.Contains("parking"))
+                            {
+                                tempWay.type = WayType.Parking;
+                                tempWay.structureType = "parking";
+                            }
 						}
 						if(key.Contains ("landuse"))
 						{
 							if(value.Contains("grass"))
 							{
 								tempWay.type = WayType.Park;
+                                tempWay.structureType = "grass";
 							}
 						}
 						if(key.Contains("highway"))
@@ -143,14 +149,17 @@ public class MapManager {
 							if(value.Contains("residential"))
 							{
 								tempWay.type = WayType.Residential;
+                                tempWay.structureType = "residential";
 							}
 							else if(value.Contains("footway"))
 							{
 								tempWay.type = WayType.Footway;
+                                tempWay.structureType = "footway";
 							}
 							else if(value.Contains("motorway"))
 							{
 								tempWay.type = WayType.Motorway;
+                                tempWay.structureType = "motorway";
 							}
 						}
 
@@ -159,14 +168,21 @@ public class MapManager {
 							if(value.Contains("park"))
 							{
 								tempWay.type = WayType.Park;
+                                tempWay.structureType = "park";
 							}
 						}
 						if(key.Contains("waterway"))
 						{
-							if(value.Contains("river"))
-								tempWay.type = WayType.River;
+                            if (value.Contains("river"))
+                            {
+                                tempWay.type = WayType.River;
+                                tempWay.structureType = "river";
+                            }
                             if (value.Contains("riverbank"))
+                            {
                                 tempWay.type = WayType.RiverBank;
+                                tempWay.structureType = "riverbank";
+                            }
 						}
 						if(key.Contains("bridge"))
 						{
@@ -178,8 +194,7 @@ public class MapManager {
 						}
 						if(key.Contains("height"))
 						{
-                            if(value.Length > 0)
-							tempWay.height = int.Parse(Regex.Replace(value, "[^-,.0-9]", "")); // Remove everything non-numeric
+							tempWay.height = float.Parse(Regex.Replace(value, "[^-,.0-9]", "")); // Remove everything non-numeric
 						}
 						if(key.Contains("area"))
 						{
@@ -187,8 +202,12 @@ public class MapManager {
 						}
 						if(key.Contains ("natural"))
 						{
-							if (value.Contains("water"))
-								tempWay.type = WayType.RiverBank;
+                            if (value.Contains("water"))
+                            {
+                                tempWay.type = WayType.RiverBank;
+                                tempWay.structureType = "riverbank";
+
+                            }
 						}
 					}
 

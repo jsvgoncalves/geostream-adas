@@ -2,6 +2,9 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Xml;
+using System.IO;
+using System.Net;
+using System.Threading;
 
 
 public class MapChunkLoader : MonoBehaviour {
@@ -19,16 +22,20 @@ public class MapChunkLoader : MonoBehaviour {
 	public Material groundMaterial;
 	public Material buildingMaterial;
 	public Material roadMaterial;
-	private int layerMask;
+	public int layerMask;
 	public bool toUnload = true;
 	public List<long> wayList;
     public int numberOfDivisions;
 	public MapChunkManager mapManager;
+    public bool exportObjs;
 	private List<GameObject> buildings;
     public Transform treePrefab;
+    private bool workerThreadCompleted = false;
+    public Dictionary<string, string> structures = new Dictionary<string, string>();
+
 	// Use this for initialization
 	IEnumerator Start () {
-
+        Loom.Current.GetComponent<Loom>();
 		layerMask = 1 << 8;
 		wayList = new List<long>();
 		//StartCoroutine(LoadChunk(-8.6f,41.1767f,-8.55f,41.1923f));
@@ -38,54 +45,70 @@ public class MapChunkLoader : MonoBehaviour {
 
         transform.position = new Vector3(((float)latlon2Utm.X - offsetPositionX), -0.1f, ((float)latlon2Utm.Y - offsetPositionZ));
 
-		//GeoUTMConverter bottomLeft = new GeoUTMConverter();
-		//GeoUTMConverter topRight = new GeoUTMConverter();
-		//bottomLeft.ToUTM(minimumLat,minimumLon);
-		//topRight.ToUTM(maximumLat,maximumLon);
 		GameObject floor = new GameObject();
 		floor.name = "Ground";
 		floor.isStatic = true;
-		/*GoogleElevation ge = new GoogleElevation();
-
-		ge.coordinates.Add(minimumLat);
-		ge.coordinates.Add(minimumLon);
-
-		ge.coordinates.Add(minimumLat);
-		ge.coordinates.Add(maximumLon);
-
-		ge.coordinates.Add(maximumLat);
-		ge.coordinates.Add(maximumLon);
-
-		ge.coordinates.Add(maximumLat);
-		ge.coordinates.Add(minimumLon);
-
-        */
-		//ge.SyncGetHeights();
-        //yield return StartCoroutine(ge.GetHeights());
-
-		//Mesh msh = CreateGroundWithHeights((float)(topRight.X-bottomLeft.X)/1.9f,(float)(topRight.Y-bottomLeft.Y)/1.9f,ge.heights);
+		
         CreateGround cg = new CreateGround();
-        cg.maxLat = maximumLat + 0.001f;
-        cg.maxLon = maximumLon + 0.001f;
-        cg.minLat = minimumLat - 0.001f;
-        cg.minLon = minimumLon - 0.001f;
+        cg.maxLat = maximumLat + 0.01f * (maximumLat - minimumLat); //0.0001f;
+        cg.maxLon = maximumLon + 0.01f * (maximumLat - minimumLat);
+        cg.minLat = minimumLat - 0.01f * (maximumLat - minimumLat);
+        cg.minLon = minimumLon - 0.01f * (maximumLat - minimumLat);
         cg.numberOfDivisions = numberOfDivisions;
         
         MeshFilter mf = floor.AddComponent<MeshFilter>();
-        mf.mesh = cg.GetGroundMesh() ;
-		MeshRenderer mr = floor.AddComponent<MeshRenderer>();
-		mr.material = groundMaterial;
-		floor.transform.position = transform.position;
-		floor.transform.parent = transform;
+
+        MeshRenderer mr = floor.AddComponent<MeshRenderer>();
+        mr.material = groundMaterial;
+        floor.transform.position = transform.position;
+        floor.transform.parent = transform;
         floor.layer = LayerMask.NameToLayer("RayCast");
 
-		MeshCollider m = floor.AddComponent<MeshCollider>();
+        string floorPath = Application.persistentDataPath + "Assets/Resources/Objs/" + cg.maxLat + "I" + cg.maxLon + ".obj";
 
-		yield return StartCoroutine(LoadChunk(minimumLon,minimumLat,maximumLon,maximumLat));
+        if (!File.Exists(floorPath)) // If the file isn't cached we calculate everything and then we cache it
+        {
+            mf.sharedMesh = cg.GetGroundMesh();
+            if (exportObjs)
+            {
+                ObjExporter oe = new ObjExporter();
+                oe.MeshToFile(mf, floorPath);
+            }
+        }
+        else
+        {
+            ObjImporter oi = new ObjImporter();
+            StartCoroutine(oi.FileToMesh("file://" + floorPath));
 
+            while (oi._myMesh == null)
+            {
+                yield return null;
+            }
 
+            mf.sharedMesh = oi._myMesh;
+            Debug.LogWarning("Loaded Ground Chunk from cache");
+        }
 
-	}
+        //Texture2D t = new Texture2D(1024, 1024);
+        
+        MapTexture mt = new MapTexture();
+        mt.getTexture(cg.minLon.ToString(), cg.minLat.ToString(), cg.maxLon.ToString(), cg.maxLat.ToString(),Application.persistentDataPath,mr.material);
+        while (mt.texture == null)
+        {
+            yield return null;
+        }
+
+       
+        
+        //t.LoadImage(mt.ReadFully(mt.mq_dataStream));
+        //mr.material.SetTexture("_MainTex", t);
+        
+        MeshCollider m = floor.AddComponent<MeshCollider>();
+        Loom l = Loom.Current;
+        LoadChunk(minimumLon, minimumLat, maximumLon, maximumLat);
+        
+		//StartCoroutine();
+   	}
 
 	public bool Contains(float lat, float lon)
 	{
@@ -94,589 +117,103 @@ public class MapChunkLoader : MonoBehaviour {
 		else return false;
 	}
 
-	Mesh CreateGroundWithHeights(float width, float height, List<float> heights)
-	{
-		Mesh m = new Mesh();
-		m.name = "ScriptedMesh";
-		m.vertices = new Vector3[] {
-			new Vector3(-width, heights[0], -height),
-			new Vector3(width, heights[1], -height),
-			new Vector3(width, heights[2], height),
-			new Vector3(-width, heights[3], height)
-		};
-		m.uv = new Vector2[] {
-			new Vector2 (0, 0),
-			new Vector2 (1, 0),
-			new Vector2(1, 1),
-			new Vector2 (0, 1)
-		};
-		m.triangles = new int[] { 0, 2, 1, 0, 3, 2};
-		m.RecalculateNormals();
-		
-		return m;
-	}
-
-	Mesh CreateGround(float width, float height)
-	{
-		Mesh m = new Mesh();
-		m.name = "ScriptedMesh";
-		m.vertices = new Vector3[] {
-			new Vector3(-width, 0, -height),
-			new Vector3(width, 0, -height),
-			new Vector3(width, 0, height),
-			new Vector3(-width, 0, height)
-		};
-		m.uv = new Vector2[] {
-			new Vector2 (0, 0),
-			new Vector2 (1, 0),
-			new Vector2(1, 1),
-			new Vector2 (0, 1)
-		};
-		m.triangles = new int[] { 0, 2, 1, 0, 3, 2};
-		m.RecalculateNormals();
-		
-		return m;
-	}
 	
-	// Update is called once per frame
-	void Update () {
-	}
 
-    private void CreateBuilding(Way w)
+    private IEnumerator LoadChunkElements()
     {
-        Mesh roofm = new Mesh();
-        Mesh wallsm = new Mesh();
-        Loom.RunAsync(() =>
+        for (int i = 0; i < mm.ways.Count; i++)
         {
-            Vector3[] nodes = new Vector3[w.nodes.Count];
-            Vector2[] xz = new Vector2[w.nodes.Count];
-
-            float height = (float)w.nodes[0].northing % 10 + 2.0f;
-
-            if (w.height != 0)
-                height = w.height;
-
-            Vector3 centroid = new Vector3();
-			Loom.QueueOnMainThread(()=>{
-                Vector3 position;
-                RaycastHit hit;
-	            for (int a = 0; a < w.nodes.Count; a++)
-	            {
-	                Node n = w.nodes[a];
-					position = new Vector3((float)((n.easthing - offsetPositionX) / precision), 5000, (float)((n.northing - offsetPositionZ) / precision));
-					float castH = 0;
-					
-					if (Physics.Raycast(position, -Vector3.up, out hit, Mathf.Infinity, layerMask))
-					{
-						castH = hit.point.y;
-					}
-					nodes[a] = new Vector3(position.x, castH + height, position.z);
-					xz[a] = new Vector2(position.x, position.z);
-	                centroid += nodes[a];
-	            }
-	            centroid /= w.nodes.Count;
-	            centroid.y += 1;
-			
-           
-
-            Vector2[] xzRoof = new Vector2[w.nodes.Count - 1];
-
-            for (int a = 0; a < xzRoof.Length; a++)
+            if (!mapManager.mapHash.Contains(mm.ways[i].id))//!mapManager.wayList.Contains(mm.ways[i]))
             {
-                xzRoof[a] = xz[a];
-            }
-
-            Triangulator tr = new Triangulator(xzRoof);
-
-            int[] indices = tr.Triangulate();
-		
-            // Create the mesh
-            
-            
-
-            Vector2[] uvs = new Vector2[nodes.Length];
-            for (int a = 0; a < nodes.Length; a++)
-            {
-                if (a < nodes.Length - 1)
+                wayList.Add(mm.ways[i].id);
+                mapManager.mapHash.Add(mm.ways[i].id);
+               // TODO : Complete with dictionary!
+                string classType = "";
+                if (structures.TryGetValue(mm.ways[i].structureType, out classType))
                 {
-                    uvs[a] = new Vector2(Mathf.Abs(nodes[a].x - nodes[a + 1].x), Mathf.Abs(nodes[a].z - nodes[a + 1].z));
+                    System.Type t = System.Type.GetType(classType + ",Assembly-CSharp");
+                    //Debug.Log(t);
+                    Structure currentStructure = (Structure)System.Activator.CreateInstance(t);
+                    
+                    StartCoroutine(currentStructure.Build(mm.ways[i], this));
+                    yield return null;
                 }
-                else
-                {
-                    uvs[a] = new Vector2(1, 1);
-                }
-            }
-            
-
-           
-
-
-
-            // Set up game object with mesh;
-
-           
-				
-                centroid = new Vector3(centroid.x, centroid.y, centroid.z);
-				BuildingCountourMesh(nodes, wallsm);
-				roofm.vertices = nodes;
-				roofm.triangles = indices;
-                roofm.uv = uvs;
-                roofm.RecalculateNormals();
-                roofm.RecalculateBounds();
-
-                GameObject build = new GameObject();
-                build.name = w.id.ToString();
-
-                build.transform.parent = this.transform;
-                GameObject roof = new GameObject();
-				//roof.transform.position = new Vector3(0,baseHeight,0);
-                roof.name = (2 * w.id).ToString();
-                mapManager.mapHash.Add(2 * w.id);
-                wayList.Add(2 * w.id);
-
-                GameObject walls = new GameObject();
-                walls.name = (3 * w.id).ToString();
-				//walls.transform.position = new Vector3(0,baseHeight,0);
-                mapManager.mapHash.Add(3 * w.id);
-                wayList.Add(3 * w.id);
-
-
-                if (w.name != null)
-                {
-                    GameObject label = new GameObject();
-                    FloatingLabel lb = label.AddComponent<FloatingLabel>();
-                    lb.transform.parent = roof.transform;
-                    lb.text = w.name;
-                    lb.target = GameObject.FindGameObjectWithTag("Player").transform;
-                    lb.transform.position = centroid;
-                }
-                walls.transform.parent = build.transform;
-                roof.transform.parent = build.transform;
-                MeshCollider wallmc = walls.AddComponent<MeshCollider>();
-                MeshCollider roofmc = roof.AddComponent<MeshCollider>();
-           
-                walls.AddComponent(typeof(MeshRenderer));
-                MeshFilter filter = walls.AddComponent(typeof(MeshFilter)) as MeshFilter;
-                filter.mesh = wallsm;
-                walls.GetComponent<MeshRenderer>().material = buildingMaterial;
-                if (w.height != 0)
-                    walls.GetComponent<MeshRenderer>().material = Resources.Load("Materials/Real Height Material") as Material;
-
-
-                //walls.transform.parent = transform;
-
-                wallmc.sharedMesh = wallsm;
-
-                roof.AddComponent(typeof(MeshRenderer));
-                roof.AddComponent(typeof(MeshCollider));
-                MeshFilter filter2 = roof.AddComponent(typeof(MeshFilter)) as MeshFilter;
-                filter2.mesh = roofm;
-
-                roofmc.sharedMesh = roofm;
-                roof.GetComponent<MeshRenderer>().material = buildingMaterial;
-                if (w.height != 0)
-                    roof.GetComponent<MeshRenderer>().material = Resources.Load("Materials/Real Height Material") as Material;
-                roof.transform.parent = transform;
-            });
-        });
-    }
-
-    private void CreateGroundArea(Way w)
-    {
-        Vector3[] nodes = new Vector3[w.nodes.Count];
-        Vector2[] xz = new Vector2[w.nodes.Count];
-
-        float height = 0;
-
-        if (w.height != 0)
-            height = w.height;
-
-        Vector3 centroid = new Vector3();
-        for (int a = 0; a < w.nodes.Count; a++)
-        {
-            RaycastHit hit;
-            Node n = w.nodes[a];
-            nodes[a] = new Vector3((float)((n.easthing - offsetPositionX) / precision), 5000, (float)((n.northing - offsetPositionZ) / precision));
-            if (Physics.Raycast(nodes[a], -Vector3.up, out hit, Mathf.Infinity, layerMask))
-            {
-                nodes[a].y = hit.point.y + height + 0.5f;
             }
             else
             {
-                nodes[a].y = 1;
+                mapManager.mapHash.Add(mm.ways[i].id);
+                wayList.Add(mm.ways[i].id);
             }
-            xz[a] = new Vector2((float)((n.easthing - offsetPositionX) / precision), (float)((n.northing - offsetPositionZ) / precision));
-            centroid += nodes[a];
         }
-        centroid /= w.nodes.Count;
-        centroid.y += 1;
-
-      //  Vector3 position = new Vector3(centroid.x, 5000, centroid.z);
-        float baseHeight = 0;
-
-
-
-        /*RaycastHit hit;
-        if (Physics.Raycast(position, -Vector3.up, out hit, Mathf.Infinity, layerMask))
+        for (int i = 0; i < mm.nodes.Count; i++)
         {
-            baseHeight = hit.point.y;
-        }*/
-        //centroid = new Vector3(centroid.x, centroid.y + baseHeight, centroid.z);
-        GameObject build = new GameObject();
-        //build.transform.position = new Vector3(0, centroid.y, 0);
-        build.name = w.id.ToString();
-        mapManager.mapHash.Add(w.id);
-        wayList.Add(w.id);
-        build.isStatic = true;
-        build.transform.parent = this.transform;
-        GameObject roof = new GameObject();
-       // roof.transform.position = new Vector3(0, centroid.y, 0);
-        roof.name = (2 * w.id).ToString();
-        mapManager.mapHash.Add(2 * w.id);
-        wayList.Add(2 * w.id);
-        roof.isStatic = true;
-        if (w.name != null)
-        {
-            GameObject label = new GameObject();
-            FloatingLabel lb = label.AddComponent<FloatingLabel>();
-            lb.text = w.name; 
-            lb.transform.position = centroid;
-            lb.target = GameObject.FindGameObjectWithTag("Player").transform;
-            label.transform.parent = build.transform;
+            Node currentNode = mm.nodes[i];
+            //TODO : COmplete with Dictionary!
+            string classType = "";
+            if (structures.TryGetValue(mm.nodes[i].structureType, out classType))
+            {
+                System.Type t = System.Type.GetType(classType + ",Assembly-CSharp");
+                //Debug.Log(t);
+                Structure currentStructure = (Structure)System.Activator.CreateInstance(t);
+                StartCoroutine(currentStructure.Build(mm.nodes[i], this));
+                yield return null;
+            }
         }
-        roof.transform.parent = build.transform;
+        isLoaded = true;
+        yield return null;
 
+    }
 
+   
 
-        Vector2[] xzRoof = new Vector2[w.nodes.Count - 1];
-
-        for (int a = 0; a < xzRoof.Length; a++)
+    public void LoadChunkThread(float minLon, float minLat, float maxLon, float maxLat, string persistentpath)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(persistentpath + "Assets/Resources/OSM/"));
+        string cacheFile = persistentpath + "Assets/Resources/OSM/" + minLon + "," + minLat + "," + maxLon + "," + maxLat + ".xml";
+        string xmlString = "";
+        if (!File.Exists(cacheFile)) // if we haven't cache it we download it and save it.
         {
-            xzRoof[a] = xz[a];
+            string url = "http://www.overpass-api.de/api/xapi?map?bbox=" + minLon + "," + minLat + "," + maxLon + "," + maxLat;
+            Debug.Log(url);
+            WebResponse webResponse = null;
+            HttpWebRequest r = (HttpWebRequest)WebRequest.Create(url);
+            webResponse = r.GetResponse();
+            Stream dataStream = webResponse.GetResponseStream();
+            // Open the stream using a StreamReader for easy access.
+            StreamReader reader = new StreamReader(dataStream);
+            // Read the content.
+            xmlString = reader.ReadToEnd();
+            Debug.Log("Response was : " + xmlString);
+            System.IO.File.WriteAllText(cacheFile, xmlString);
         }
-
-        Triangulator tr = new Triangulator(xzRoof);
+        else // we have it cached, lets read it locally
+        {
+            xmlString = System.IO.File.ReadAllText(cacheFile);
+        }
+        
+        XmlDocument XMLFile = new XmlDocument();
+        
+        XMLFile.LoadXml(xmlString);
+        mm = new MapManager(XMLFile);
+        Loom.QueueOnMainThread(() =>
+        {
+            StartCoroutine(LoadChunkElements());
+        });
+        
        
-        int[] indices = tr.Triangulate();
-        // Create the mesh
-        Mesh roofm = new Mesh();
-        roofm.vertices = nodes;
-        roofm.triangles = indices;
-
-        Vector2[] uvs = new Vector2[nodes.Length];
-        for (int a = 0; a < nodes.Length; a++)
-        {
-            if (a < nodes.Length - 1)
-            {
-                uvs[a] = new Vector2(Mathf.Abs(nodes[a].x) / nodes[nodes.Length - 1].x, Mathf.Abs(nodes[a].z) / nodes[nodes.Length - 1].x);
-            }
-            else
-            {
-                uvs[a] = new Vector2(1, 1);
-            }
-        }
-
-        roofm.uv = uvs;
-        roofm.RecalculateNormals();
-        roofm.RecalculateBounds();
-
-
-        roof.AddComponent(typeof(MeshRenderer));
-        MeshFilter filter2 = roof.AddComponent(typeof(MeshFilter)) as MeshFilter;
-        roof.AddComponent<MeshCollider>();
-        filter2.mesh = roofm;
-        if (w.type == WayType.Parking)
-            roof.GetComponent<MeshRenderer>().material = Resources.Load("Materials/Parking Material") as Material;
-        if (w.type == WayType.Park)
-            roof.GetComponent<MeshRenderer>().material = Resources.Load("Materials/Park Material") as Material;
-        if (w.type == WayType.RiverBank)
-            roof.GetComponent<MeshRenderer>().material = Resources.Load("Materials/River Material") as Material;
-        
-        
-        roof.transform.parent = transform;
     }
-
-    private void CreateRoad(Way w)
+	
+	private void LoadChunk(float minLon,float minLat,float maxLon,float maxLat)
     {
-        //GameObject go = new GameObject();
-        //go.name = "Road";
-        PolyLine pl = new PolyLine("Way - " + w.id.ToString());
-        pl.SetOffset(offsetPositionX, offsetPositionZ);
-        pl.heigth = w.height;
-
-        if (w.type == WayType.Footway)
-        {
-            pl.material = Resources.Load("Materials/Footway Material") as Material;
-            pl.width = 1;
-        }
-        if (w.type == WayType.Motorway)
-        {
-            pl.material = Resources.Load("Materials/Road Material") as Material;
-            pl.width = 4;
-            pl.lanes = 2;
-        }
-        if (w.type == WayType.Residential)
-        {
-            pl.material = Resources.Load("Materials/Road Material") as Material;
-            pl.width = 2;
-        }
-        if (w.type == WayType.River)
-        {
-            pl.material = Resources.Load("Materials/River Material") as Material;
-            pl.width = 8;
-        }
-        //Road road = go.AddComponent<Road>();
-        //road.groundOffset = 0.01f;
-        //road.points.Clear();
-        //road.roadWidth = 0.1f;// (float)(road.roadWidth/precision);
-        //road.mat = (Material)Resources.LoadAssetAtPath("Assets/RoadTool/Example/Texture/Materials/Road.mat", typeof(Material));
-        for (int a = 0; a < w.nodes.Count; a++)
-        {
-            Node n = w.nodes[a];
-
-            Vector3 position = new Vector3((float)(n.easthing - offsetPositionX), 5000, (float)(n.northing - offsetPositionZ));
-			float baseHeight = 0;
-			RaycastHit hit;
-
-            if (Physics.Raycast(position, -Vector3.up, out hit, Mathf.Infinity, layerMask))
-			{
-				baseHeight = hit.point.y;
-			}
-			n.height = baseHeight;
-			//Vector3 v = newn. Vector3((float)(((float)n.easthing-offsetPositionX)/precision),(float)0.0,(float)(((float)n.northing-offsetPositionZ)/precision));
-            //road.points.Insert(0, v);
-            pl.Add(n);
-
-        }
-        pl.Close(transform);
-        //go.isStatic = true;
-        //road.Refresh();
-        //go.transform.parent = transform;
+        string path = Application.persistentDataPath;
+        Thread workerThread = new Thread(() => LoadChunkThread(minLon, minLat, maxLon, maxLat, path));
+        workerThread.Start();
     }
 
-    private void CreateTree(Node n)
+    void Update()
     {
-        Vector3 position = new Vector3((float)(n.easthing - offsetPositionX), 15000.0f, (float)(n.northing - offsetPositionZ));
-        RaycastHit hit;
-        if (Physics.Raycast(position, -Vector3.up, out hit, Mathf.Infinity, layerMask))
-        {
-            position.y = hit.point.y;
-        }
-
-
-        Instantiate(mapManager.treePrefab, position, Quaternion.identity);
-
+      
     }
-
-	private Mesh CombineMeshes(List<Mesh> meshes)
-	{
-		CombineInstance[] combine = new CombineInstance[meshes.Count];
-		int i = 0;
-		while (i < meshes.Count) {
-			combine[i].mesh = meshes[i];
-			//combine[i].transform = meshes[i].transform.localToWorldMatrix;
-			i++;
-		}
-		Mesh m = new Mesh();
-		m.CombineMeshes(combine,false);
-		return m;
-	}
-	
-	private Mesh BuildingCountourMesh(Vector3[] nodes, Mesh mesh)
-	{
-		
-		//Mesh mesh = new Mesh();
-        Loom.RunAsync(() =>
-        {
-            Vector3[] bottomvertices = new Vector3[nodes.Length];
-            float ccwChecker = 0;
-            for (int i = 0; i < bottomvertices.Length; i++)
-            {
-                if (i < bottomvertices.Length - 1)
-                    ccwChecker += (nodes[i + 1].x - nodes[i].x) * (nodes[i + 1].z + nodes[i].z);
-                bottomvertices[i] = new Vector3(nodes[i].x, 0, nodes[i].z);
-            }
-
-            Vector3[] allVertices = new Vector3[2 * nodes.Length];
-
-            Vector2[] uvs = new Vector2[allVertices.Length];
-
-            for (int i = 0; i < bottomvertices.Length; i++)
-            {
-                allVertices[i] = bottomvertices[i];
-            }
-            for (int i = bottomvertices.Length; i < 2 * bottomvertices.Length; i++)
-            {
-                allVertices[i] = nodes[i - bottomvertices.Length];
-            }
-
-            for (int i = 0; i < allVertices.Length; i++)
-            {
-                if (i < allVertices.Length - 1)
-                {
-                    uvs[i] = new Vector2(allVertices[i].x - allVertices[i + 1].x, allVertices[i].z - allVertices[i + 1].z);
-                }
-                else
-                {
-                    uvs[i] = new Vector2(1, 1);
-                }
-            }
-
-
-
-
-            int numberOfTrisVert = 3 * (allVertices.Length);
-
-            if (numberOfTrisVert <= 0)
-            {
-                Debug.LogError(numberOfTrisVert);
-            }
-
-            if (numberOfTrisVert > 0)
-            {
-                int[] tris = new int[numberOfTrisVert];
-
-                int C1 = nodes.Length;
-
-                int C2 = nodes.Length + 1;
-
-                int C3 = 0;
-
-                int C4 = 1;
-
-                for (int x = 0; x < numberOfTrisVert; x += 6)
-                {
-
-                    if (C2 >= allVertices.Length)
-                        C2 = allVertices.Length - 1;
-
-                    if (C1 >= allVertices.Length)
-                        C1 = allVertices.Length - 1;
-
-
-                    if (ccwChecker < 0)
-                    {
-                        tris[x] = C1;
-
-                        tris[x + 1] = C2;
-
-                        tris[x + 2] = C3;
-
-                        tris[x + 3] = C3;
-
-                        tris[x + 4] = C2;
-
-                        tris[x + 5] = C4;
-                    }
-                    else
-                    {
-                        tris[x] = C1;
-
-                        tris[x + 1] = C3;
-
-                        tris[x + 2] = C2;
-
-                        tris[x + 3] = C3;
-
-                        tris[x + 4] = C4;
-
-                        tris[x + 5] = C2;
-                    }
-
-                    C1++;
-
-                    C2++;
-
-                    C3++;
-
-                    C4++;
-
-                }
-                Loom.QueueOnMainThread(() =>
-                {
-                    mesh.vertices = allVertices;
-                    mesh.uv = uvs;
-                    mesh.triangles = tris;
-                    mesh.Optimize();
-                    mesh.RecalculateBounds();
-                    mesh.RecalculateNormals();
-                });
-            }
-        });
-		return mesh;
-	}
-	
-	private IEnumerator LoadChunk(float minLon,float minLat,float maxLon,float maxLat)	
-	{
-		Debug.Log("Started Download");
-		string url = "http://www.overpass-api.de/api/xapi?map?bbox="+minLon+","+minLat+","+maxLon+","+maxLat;
-		Debug.Log(url);
-		WWW request = new WWW(url);
-		yield return request;
-
-
-
-		Debug.Log("Done");
-		Debug.Log(request.text);
-		if (request.error == null && request.isDone && !isLoaded)
-		{
-			XmlDocument XMLFile = new XmlDocument();
-			XMLFile.LoadXml(request.text);
-
-			mm = new MapManager(XMLFile);
-
-            for (int i = 0; i < mm.trees.Count; i++)
-            {
-                Node currentNode = mm.nodes[i];
-                if (currentNode.type == NodeType.Tree)
-                {
-                    CreateTree(currentNode);
-                }
-                
-            }
-
-
-			for(int i = 0; i < mm.ways.Count; i++)
-			{
-				if(!mapManager.mapHash.Contains(mm.ways[i].id))//!mapManager.wayList.Contains(mm.ways[i]))
-				{
-					wayList.Add(mm.ways[i].id);
-					mapManager.mapHash.Add(mm.ways[i].id);
-					if(mm.ways[i].type == WayType.Building)
-					{
-
-                        CreateBuilding(mm.ways[i]);
-
-					}
-					else if (mm.ways[i].type == WayType.Parking || mm.ways[i].type == WayType.Park || mm.ways[i].type == WayType.RiverBank)
-					{
-                        CreateGroundArea(mm.ways[i]);
-
-					}
-					else
-					{
-						if( mm.ways[i].nodes.Count > 1)
-						{
-                            CreateRoad(mm.ways[i]);
-						}
-					}
-				}
-				else
-				{
-					mapManager.mapHash.Add(mm.ways[i].id);
-					wayList.Add(mm.ways[i].id);
-				}
-			}
-
-			isLoaded = true;
-			
-		}
-		else
-		{
-			Debug.Log("Error");
-		}
-	
-	}	
 
 }
 

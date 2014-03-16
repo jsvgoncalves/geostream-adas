@@ -3,6 +3,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Xml;
 using System.Globalization;
+using System.Threading;
+using System.Net;
+using System.IO;
 
 public class GoogleElevation {
 
@@ -41,7 +44,7 @@ public class GoogleElevation {
 			{
 				float l = Mathf.Abs(coordinates[i]*100-(int)(coordinates[i]*100));
 				float r = Mathf.Abs(coordinates[i+1]*100-(int)(coordinates[i+1]*100));
-				float height = (l+r)*100;
+                float height = 2;//(l+r)*100;
 				this.heights.Add(height);
 			}
 		}
@@ -54,26 +57,54 @@ public class GoogleElevation {
 		}
 	}
 
-	public IEnumerator GetHeights()
-	{
-		string request = "";
-        for(int i = 0; i < coordinates.Count-1; i+=2)
+    private void AsyncGetHeightsAux()
+    {
+        string request = "";
+        for (int i = 0; i < coordinates.Count - 1; i += 2)
         {
-            request+=coordinates[i]+","+coordinates[i+1];
-            if(i != coordinates.Count -2)
-            request+="|";
-        }
-		request = WWW.EscapeURL(request);
-		string req = "http://maps.googleapis.com/maps/api/elevation/xml?locations=" + request + "&sensor=false";
-			
-		WWW googleRequest = new WWW(req);
-		request = req;
-	    yield return googleRequest;
+            request += coordinates[i] + "," + coordinates[i + 1];
+            if (i != coordinates.Count - 2)
+                request += "|";
+            //request += coordinates[coordinates.Count - 2] + "," + coordinates[coordinates.Count - 1];
 
-		XmlDocument XMLFile = new XmlDocument();
-		XMLFile.LoadXml(googleRequest.text);
-		List<float> heightsResult = ParseXML(XMLFile);
-		this.heights = heightsResult;
+        }
+
+        string req = "http://maps.googleapis.com/maps/api/elevation/xml?locations=" + request + "&sensor=false";
+        Debug.Log(req);
+
+        WebResponse webResponse = null;
+        HttpWebRequest httpreq = (HttpWebRequest)WebRequest.Create(req);
+        webResponse = httpreq.GetResponse();
+        Stream dataStream = webResponse.GetResponseStream();
+        // Open the stream using a StreamReader for easy access.
+        StreamReader reader = new StreamReader(dataStream);
+        // Read the content.
+        string responseFromServer = reader.ReadToEnd();
+
+        if (responseFromServer.Contains("OVER_QUERY_LIMIT"))
+        {
+            this.heights = new List<float>();
+            for (int i = 0; i < coordinates.Count; i += 2)
+            {
+                float l = Mathf.Abs(coordinates[i] * 100 - (int)(coordinates[i] * 100));
+                float r = Mathf.Abs(coordinates[i + 1] * 100 - (int)(coordinates[i + 1] * 100));
+                float height = (l + r) * 100;
+                this.heights.Add(height);
+            }
+        }
+        else
+        {
+            XmlDocument XMLFile = new XmlDocument();
+            XMLFile.LoadXml(responseFromServer);
+            List<float> heightsResult = ParseXML(XMLFile);
+            this.heights = heightsResult;
+        }
+    }
+
+	public void AsyncGetHeights()
+	{
+        Thread workerThread = new Thread(() => AsyncGetHeightsAux());
+        workerThread.Start();
 
 	}
 
